@@ -1,38 +1,67 @@
 // CommunityConnect AI - API layer.
 //
-// Proposed backend contract (to be confirmed by Developer 2):
+// Agreed backend contract (proposed; to be confirmed by Developer 2):
 //   POST /api/chat
 //   Request:  { message, category, location }
 //             category: "veterans" | "food" | "employment" | null
 //   Response: { reply, resources: [{ name, category, description, location, phone, website }] }
+//             phone / website may be null.
 //
 // MODES
 //   "demo" - no network calls; returns clearly labeled fictional examples.
-//   "live" - sends requests to the Flask backend.
+//   "live" - sends requests to the Flask backend. If the request fails, an
+//            error is raised; live mode NEVER falls back to demo data.
 //
 // Switch modes by changing DEFAULT_MODE below, or per page load with a URL
 // parameter: index.html?mode=live  or  index.html?mode=demo
+//
+// No credentials belong in this file. Snowflake authentication stays in Flask.
 
 "use strict";
 
 (function () {
   const DEFAULT_MODE = "demo";
 
-  // When the page is served by Flask (port 5000) use relative URLs; otherwise
-  // (file:// or a static dev server) point at the local Flask server.
-  const API_BASE = window.location.port === "5000" ? "" : "http://127.0.0.1:5000";
-  const CHAT_ENDPOINT = `${API_BASE}/api/chat`;
+  // Ports used by static dev servers (python -m http.server, VS Code Live Server).
+  // When the page is served from one of these, or opened as a file, requests go
+  // to the local Flask server. Otherwise (e.g. Flask serves the frontend itself)
+  // relative, same-origin URLs are used.
+  const STATIC_DEV_PORTS = ["8000", "5500"];
+  const LOCAL_FLASK_URL = "http://127.0.0.1:5000";
+
   const REQUEST_TIMEOUT_MS = 30000;
   const DEMO_DELAY_MS = 900;
+  const MAX_RESOURCES = 20;
 
   const VALID_CATEGORIES = ["veterans", "food", "employment"];
+
+  function resolveApiBase() {
+    const { protocol, port } = window.location;
+    if (protocol === "file:" || STATIC_DEV_PORTS.includes(port)) {
+      return LOCAL_FLASK_URL;
+    }
+    return "";
+  }
 
   function resolveMode() {
     const param = new URLSearchParams(window.location.search).get("mode");
     return param === "live" || param === "demo" ? param : DEFAULT_MODE;
   }
 
+  const API_BASE = resolveApiBase();
+  const CHAT_ENDPOINT = `${API_BASE}/api/chat`;
   const MODE = resolveMode();
+
+  // Error with a `kind` the UI can turn into a friendly message:
+  // "network" | "timeout" | "http" | "invalid_response"
+  class ApiError extends Error {
+    constructor(kind, message, status) {
+      super(message);
+      this.name = "ApiError";
+      this.kind = kind;
+      this.status = status ?? null;
+    }
+  }
 
   function buildPayload(message, category, location) {
     return {
@@ -42,28 +71,85 @@
     };
   }
 
+  // ---------- Response validation ----------
+
+  function optionalString(value) {
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      return trimmed === "" ? null : trimmed;
+    }
+    if (typeof value === "number") return String(value);
+    return null;
+  }
+
+  function normalizeResource(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+
+    const resource = {
+      name: optionalString(raw.name),
+      category: optionalString(raw.category)?.toLowerCase() ?? null,
+      description: optionalString(raw.description),
+      location: optionalString(raw.location),
+      phone: optionalString(raw.phone),
+      website: optionalString(raw.website),
+    };
+
+    // Skip entries with nothing meaningful to show.
+    return resource.name || resource.description ? resource : null;
+  }
+
+  function normalizeResponse(data) {
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new ApiError("invalid_response", "Response body is not a JSON object");
+    }
+
+    const reply = optionalString(data.reply);
+    const rawResources = data.resources ?? [];
+    if (!Array.isArray(rawResources)) {
+      throw new ApiError("invalid_response", "`resources` must be an array");
+    }
+    if (reply === null && rawResources.length === 0) {
+      throw new ApiError("invalid_response", "Response has no `reply` and no `resources`");
+    }
+
+    const resources = rawResources.map(normalizeResource).filter(Boolean).slice(0, MAX_RESOURCES);
+    return { reply, resources, demo: false };
+  }
+
   // ---------- Live mode ----------
 
   async function sendLive(payload) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
+    let response;
     try {
-      const response = await fetch(CHAT_ENDPOINT, {
+      response = await fetch(CHAT_ENDPOINT, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
-
-      if (!response.ok) {
-        throw new Error(`Server responded with status ${response.status}`);
+    } catch (error) {
+      if (error.name === "AbortError") {
+        throw new ApiError("timeout", "Request timed out");
       }
-      const data = await response.json();
-      return { ...data, demo: false };
+      throw new ApiError("network", error.message || "Network request failed");
     } finally {
       clearTimeout(timer);
     }
+
+    if (!response.ok) {
+      throw new ApiError("http", `Server responded with status ${response.status}`, response.status);
+    }
+
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      throw new ApiError("invalid_response", "Response body is not valid JSON");
+    }
+    return normalizeResponse(data);
   }
 
   // ---------- Demo mode ----------
@@ -191,5 +277,6 @@
     isDemo: MODE === "demo",
     endpoint: CHAT_ENDPOINT,
     sendChat,
+    ApiError,
   };
 })();

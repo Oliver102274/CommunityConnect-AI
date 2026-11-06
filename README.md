@@ -80,7 +80,7 @@ CommunityConnect-AI/
 ### 1. Clone the repository
 
 ```powershell
-git clone https://github.com/<your-username>/CommunityConnect-AI.git
+git clone https://github.com/Oliver102274/CommunityConnect-AI.git
 cd CommunityConnect-AI
 code .
 ```

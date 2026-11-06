@@ -2,7 +2,7 @@
 
 An AI-powered web application that helps people find local community assistance programs based on their needs and location.
 
-> **Status:** Stage 2 — frontend complete with a built-in **demo mode**. The Flask chat API, Snowflake Cortex AI, Cortex Search (RAG), and resource database are **planned, not yet implemented**.
+> **Status:** Stage 3 — frontend is ready for live integration and works in **demo mode** today. The Flask `POST /api/chat` endpoint, Snowflake Cortex AI, Cortex Search (RAG), and resource database are **not implemented yet** (owned by Developer 2).
 
 ---
 
@@ -161,7 +161,29 @@ Demo resources are intentionally fictional (e.g. "Example Community Food Pantry"
   const DEFAULT_MODE = "demo"; // change to "live" once the backend is ready
   ```
 
-In live mode, if Flask isn't running, the chat shows a friendly "couldn't reach the assistant" message.
+In live mode, if Flask isn't running, the chat shows a friendly "couldn't reach the assistant" message. Live mode **never** falls back to demo results.
+
+### Which API URL the frontend uses
+
+`frontend/js/api.js` picks the API base automatically:
+
+| How the page is opened | API URL used |
+| --- | --- |
+| `file://` (double-clicked `index.html`) | `http://127.0.0.1:5000/api/chat` |
+| Static dev server on port `8000` or `5500` (Live Server) | `http://127.0.0.1:5000/api/chat` |
+| Served by Flask (any other origin) | `/api/chat` (same-origin, relative) |
+
+### Live mode error handling
+
+| Situation | What the user sees |
+| --- | --- |
+| Flask not running / CORS blocked | "We couldn't reach the CommunityConnect assistant right now…" |
+| No response within 30 seconds | "Sorry, that took too long…" |
+| HTTP 5xx | "The assistant ran into a problem on our side…" |
+| HTTP 4xx | "We couldn't process that request…" |
+| Invalid JSON or wrong shape | "We received an unexpected response…" |
+
+Responses are validated in `api.js`: `resources` must be an array (missing is treated as empty), entries without a name or description are skipped, and at most 20 cards are shown. All text is rendered as plain text, and only `http(s)` website links are allowed.
 
 ## Proposed Chat API Contract
 
@@ -212,11 +234,29 @@ Response:
 
 The endpoint URL is configured in `frontend/js/api.js` (`API_BASE` / `CHAT_ENDPOINT`).
 
+### Testing live mode
+
+1. Start Flask: `cd backend` then `python app.py` (port 5000).
+2. Start the frontend: `cd frontend` then `python -m http.server 8000`.
+3. Open <http://localhost:8000/?mode=live> and send a message for each category.
+4. Check the browser DevTools **Network** tab: the request to `/api/chat` should return `200` with the JSON shape above.
+
+### Integration status and remaining requirements
+
+- [x] Frontend sends the agreed request and validates the agreed response
+- [x] Error handling for network, timeout, HTTP, and invalid responses
+- [x] Tested against a mock response matching the contract (not committed)
+- [ ] Developer 2: implement `POST /api/chat` in Flask
+- [ ] Developer 2: enable CORS for `http://localhost:8000` (or serve `frontend/` from Flask)
+- [ ] Developer 2: return the agreed `reply` / `resources` format, using `veterans`, `food`, `employment` category values
+- [ ] Both: test end to end with `?mode=live`, then switch `DEFAULT_MODE` to `"live"`
+
 ## Roadmap
 
 - [x] **Stage 1:** Project structure, minimal Flask server, starter frontend
 - [x] **Stage 2:** Chatbot UI, resource card components, and demo mode
-- [ ] **Stage 3:** Snowflake database with Miami-Dade resource data
+- [x] **Stage 3:** Frontend prepared for live API integration (backend endpoint pending)
+- [ ] **Backend (Developer 2):** Snowflake database with Miami-Dade resource data
 - [ ] **Stage 4:** Cortex Search service for retrieval (RAG)
 - [ ] **Stage 5:** Cortex AI REST API integration for chat responses
 - [ ] **Stage 6:** Frontend/backend integration and API endpoints

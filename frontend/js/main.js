@@ -188,9 +188,13 @@ function createResourceCard(resource, options = {}) {
 
   if (hasValue(resource.phone)) {
     const tel = resource.phone.replace(/[^\d+]/g, "");
-    const link = el("a", null, resource.phone);
-    link.href = `tel:${tel}`;
-    addRow("Phone", link);
+    if (/\d{3,}/.test(tel)) {
+      const link = el("a", null, resource.phone);
+      link.href = `tel:${tel}`;
+      addRow("Phone", link);
+    } else {
+      addRow("Phone", document.createTextNode(resource.phone));
+    }
   } else {
     addRow("Phone", el("span", "muted", "Not available"));
   }
@@ -232,13 +236,20 @@ function renderResources(resources, options = {}) {
 // ---------- Errors ----------
 
 function friendlyError(error) {
-  if (error.name === "AbortError") {
-    return "Sorry, that took too long. Please try again in a moment.";
+  switch (error?.kind) {
+    case "timeout":
+      return "Sorry, that took too long. Please try again in a moment.";
+    case "network":
+      return "We couldn't reach the CommunityConnect assistant right now. The service may be offline or still starting up. Please try again shortly.";
+    case "http":
+      return error.status >= 500
+        ? "The CommunityConnect assistant ran into a problem on our side. Please try again in a moment."
+        : "Sorry, we couldn't process that request. Please try rephrasing your message.";
+    case "invalid_response":
+      return "We received an unexpected response from the assistant. Please try again.";
+    default:
+      return "Sorry, something went wrong while getting your answer. Please try again.";
   }
-  if (error instanceof TypeError) {
-    return "We couldn't reach the CommunityConnect assistant right now. The AI service may still be starting up. Please try again shortly.";
-  }
-  return "Sorry, something went wrong while getting your answer. Please try again.";
 }
 
 // ---------- Input handling ----------

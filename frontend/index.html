@@ -32,6 +32,7 @@
           <li><a href="#chat">Chat</a></li>
           <li><a href="#resources">Resources</a></li>
         </ul>
+        <span id="mode-badge" class="mode-badge">Demo mode</span>
         <span class="powered-by">Powered by Snowflake</span>
       </nav>
     </div>
@@ -98,6 +99,10 @@
         </p>
 
         <div class="chat-panel">
+          <div id="demo-notice" class="demo-notice" role="note">
+            <strong>Demo mode:</strong> responses and resources are fictional examples, not verified recommendations.
+            The AI assistant is not connected yet.
+          </div>
           <div id="chat-log" class="chat-log" role="log" aria-live="polite" aria-relevant="additions" aria-label="Conversation"></div>
 
           <div class="prompt-chips" aria-label="Example prompts">
@@ -124,6 +129,9 @@
       <div class="container">
         <h2 id="resources-heading" class="section-title">Recommended Resources</h2>
         <p class="section-sub">Programs suggested by the assistant will appear here.</p>
+        <p id="resources-demo-notice" class="demo-notice standalone" role="note" hidden>
+          <strong>Demo results:</strong> these cards are fictional placeholders to preview the layout. They are not real organizations.
+        </p>
         <div id="resource-list" class="resource-grid" aria-live="polite">
           <p class="empty-state">No resources yet. Start a conversation above to see recommendations.</p>
         </div>
@@ -138,6 +146,7 @@
     </div>
   </footer>
 
+  <script src="js/api.js" defer></script>
   <script src="js/main.js" defer></script>
 </body>
 </html>

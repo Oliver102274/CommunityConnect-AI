@@ -1,19 +1,10 @@
-// CommunityConnect AI - frontend logic (vanilla JS).
-//
-// Backend contract (implemented by Developer 2):
-//   POST /api/chat
-//   Request:  { message, category, location }
-//   Response: { reply, resources: [{ name, category, description, location, phone, website }] }
+// CommunityConnect AI - UI logic (vanilla JS).
+// API requests and demo/live mode live in api.js (window.CommunityConnectAPI).
 
 "use strict";
 
-// When the page is served by Flask (port 5000) use relative URLs; otherwise
-// (file:// or a static dev server) point at the local Flask server.
-const API_BASE =
-  window.location.port === "5000" ? "" : "http://127.0.0.1:5000";
-const CHAT_ENDPOINT = `${API_BASE}/api/chat`;
+const API = window.CommunityConnectAPI;
 const DEFAULT_LOCATION = "Miami-Dade County";
-const REQUEST_TIMEOUT_MS = 30000;
 
 const CATEGORIES = {
   veterans: "Veteran Support",
@@ -46,6 +37,9 @@ const els = {
   sendBtn: document.getElementById("send-btn"),
   chips: document.querySelectorAll(".chip"),
   resourceList: document.getElementById("resource-list"),
+  demoNotice: document.getElementById("demo-notice"),
+  resourcesNotice: document.getElementById("resources-demo-notice"),
+  modeBadge: document.getElementById("mode-badge"),
 };
 
 // ---------- Helpers ----------
@@ -124,13 +118,17 @@ els.clearCategory.addEventListener("click", () => setCategory(null));
 
 // ---------- Chat messages ----------
 
-function addMessage(role, text) {
-  const wrapper = el("div", `message ${role}`);
-  const avatar = el("span", "message-avatar", role === "user" ? "You" : "AI");
+function addMessage(role, text, options = {}) {
+  const isUser = role === "user";
+  const wrapper = el("div", `message ${role}${options.demo ? " demo" : ""}`);
+  const avatar = el("span", "message-avatar", isUser ? "You" : options.demo ? "Demo" : "AI");
   avatar.setAttribute("aria-hidden", "true");
 
   const bubble = el("div", "message-bubble", text);
-  const label = el("span", "sr-only", role === "user" ? "You said: " : "Assistant: ");
+  if (options.demo) {
+    bubble.prepend(el("span", "demo-tag", "Demo example \u2013 not a real AI recommendation"));
+  }
+  const label = el("span", "sr-only", isUser ? "You said: " : "Assistant: ");
   bubble.prepend(label);
 
   wrapper.append(avatar, bubble);
@@ -154,8 +152,12 @@ function showTyping() {
 
 // ---------- Resource cards ----------
 
-function createResourceCard(resource) {
-  const card = el("article", "resource-card");
+function createResourceCard(resource, options = {}) {
+  const card = el("article", `resource-card${options.demo ? " demo" : ""}`);
+
+  if (options.demo) {
+    card.append(el("span", "demo-tag", "Fictional example \u2013 not a real organization"));
+  }
 
   const categoryKey = hasValue(resource.category) ? resource.category.trim().toLowerCase() : "";
   const categoryLabel = CATEGORIES[categoryKey] || (hasValue(resource.category) ? resource.category : "General");
@@ -209,8 +211,9 @@ function createResourceCard(resource) {
   return card;
 }
 
-function renderResources(resources) {
+function renderResources(resources, options = {}) {
   els.resourceList.replaceChildren();
+  els.resourcesNotice.hidden = !options.demo;
 
   if (!Array.isArray(resources) || resources.length === 0) {
     els.resourceList.append(
@@ -221,37 +224,12 @@ function renderResources(resources) {
 
   resources.forEach((resource) => {
     if (resource && typeof resource === "object") {
-      els.resourceList.append(createResourceCard(resource));
+      els.resourceList.append(createResourceCard(resource, options));
     }
   });
 }
 
-// ---------- API ----------
-
-async function sendChatRequest(message) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(CHAT_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message,
-        category: state.category,
-        location: DEFAULT_LOCATION,
-      }),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Server responded with status ${response.status}`);
-    }
-    return await response.json();
-  } finally {
-    clearTimeout(timer);
-  }
-}
+// ---------- Errors ----------
 
 function friendlyError(error) {
   if (error.name === "AbortError") {
@@ -293,10 +271,11 @@ async function handleSend(rawMessage) {
   const typing = showTyping();
 
   try {
-    const data = await sendChatRequest(message);
+    const data = await API.sendChat(message, state.category, DEFAULT_LOCATION);
+    const demo = data?.demo === true;
     typing.remove();
-    addMessage("ai", hasValue(data?.reply) ? data.reply : "Here are some resources that may help.");
-    renderResources(data?.resources);
+    addMessage("ai", hasValue(data?.reply) ? data.reply : "Here are some resources that may help.", { demo });
+    renderResources(data?.resources, { demo });
     if (Array.isArray(data?.resources) && data.resources.length > 0) {
       els.resourceList.closest("section").scrollIntoView({ behavior: "smooth", block: "start" });
     }
@@ -337,6 +316,10 @@ els.chips.forEach((chip) => {
 // ---------- Init ----------
 
 document.addEventListener("DOMContentLoaded", () => {
+  els.demoNotice.hidden = !API.isDemo;
+  els.modeBadge.textContent = API.isDemo ? "Demo mode" : "Live mode";
+  els.modeBadge.classList.toggle("live", !API.isDemo);
+
   addMessage(
     "ai",
     "Hi there! I'm the CommunityConnect assistant. I can help you find veteran support, food assistance, and employment programs in Miami-Dade County.\n\nTell me what you need, choose a category, or try one of the example questions below."

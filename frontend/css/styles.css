@@ -199,12 +199,11 @@ h3 {
 }
 
 .brand-mark {
-  display: grid;
-  place-items: center;
+  display: block;
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: linear-gradient(135deg, var(--teal-600), var(--navy-500));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25);
 }
 
 .site-nav {

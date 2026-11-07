@@ -52,12 +52,38 @@ RESULT_COLUMNS = ["NAME", "CATEGORY", "DESCRIPTION", "CITY", "PHONE", "WEBSITE"]
 # CONNECTION
 # ----------------------------------------
 
+def _load_private_key():
+    """Return the DER-encoded private key from SNOWFLAKE_PRIVATE_KEY (PEM text), or None.
+
+    Used for key-pair authentication on servers (e.g. Render), where browser
+    sign-in is not possible. Literal "\\n" sequences are accepted so the PEM can
+    be stored as a single-line environment variable.
+    """
+    pem = os.getenv("SNOWFLAKE_PRIVATE_KEY")
+    if _placeholder(pem):
+        return None
+
+    from cryptography.hazmat.primitives import serialization
+
+    passphrase = os.getenv("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE")
+    key = serialization.load_pem_private_key(
+        pem.replace("\\n", "\n").encode(),
+        password=passphrase.encode() if passphrase else None,
+    )
+    return key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+
 def get_snowflake_connection():
     """Open a Snowflake connection.
 
-    Preferred: SNOWFLAKE_CONNECTION_NAME, a named connection from
-    ~/.snowflake/connections.toml (keeps credentials out of the project).
-    Fallback: SNOWFLAKE_ACCOUNT / USER / PASSWORD (+ optional AUTHENTICATOR).
+    1. SNOWFLAKE_CONNECTION_NAME: named connection from ~/.snowflake/connections.toml
+       (local development; keeps credentials out of the project).
+    2. SNOWFLAKE_ACCOUNT / USER + SNOWFLAKE_PRIVATE_KEY: key-pair auth (servers).
+    3. SNOWFLAKE_ACCOUNT / USER / PASSWORD (+ optional AUTHENTICATOR).
     """
     common = {
         "warehouse": None if _placeholder(os.getenv("SNOWFLAKE_WAREHOUSE")) else os.getenv("SNOWFLAKE_WAREHOUSE"),
@@ -71,12 +97,25 @@ def get_snowflake_connection():
     if connection_name:
         return snowflake.connector.connect(connection_name=connection_name, **common)
 
+    private_key = _load_private_key()
+    if private_key is not None:
+        missing = [n for n in ("SNOWFLAKE_ACCOUNT", "SNOWFLAKE_USER") if _placeholder(os.getenv(n))]
+        if missing:
+            raise RuntimeError("Snowflake key-pair auth needs " + ", ".join(missing))
+        return snowflake.connector.connect(
+            account=os.getenv("SNOWFLAKE_ACCOUNT"),
+            user=os.getenv("SNOWFLAKE_USER"),
+            authenticator="SNOWFLAKE_JWT",
+            private_key=private_key,
+            **common,
+        )
+
     required = ["SNOWFLAKE_ACCOUNT", "SNOWFLAKE_USER", "SNOWFLAKE_PASSWORD"]
     missing = [name for name in required if _placeholder(os.getenv(name))]
     if missing:
         raise RuntimeError(
-            "Snowflake is not configured. Set SNOWFLAKE_CONNECTION_NAME or "
-            + ", ".join(missing) + " in .env"
+            "Snowflake is not configured. Set SNOWFLAKE_CONNECTION_NAME, "
+            "SNOWFLAKE_PRIVATE_KEY, or " + ", ".join(missing) + " in the environment"
         )
 
     authenticator = os.getenv("SNOWFLAKE_AUTHENTICATOR")

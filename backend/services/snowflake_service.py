@@ -1,198 +1,258 @@
+"""Snowflake data access for CommunityConnect AI.
 
+Retrieval: Snowflake Cortex Search (RESOURCE_SEARCH) with a SQL fallback.
+Generation: Snowflake Cortex AI_COMPLETE, grounded only in retrieved rows.
+"""
 
+import json
+import logging
 import os
 from pathlib import Path
 
 import snowflake.connector
 from dotenv import load_dotenv
 
+# .env lives in the project root (one level above backend/).
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
+
+log = logging.getLogger(__name__)
+
+
+def _placeholder(value):
+    """True for unset values or untouched .env.example placeholders."""
+    return not value or value.startswith("your_")
+
+
+def _setting(name, default):
+    value = os.getenv(name)
+    return default if _placeholder(value) else value
+
+
+DATABASE = _setting("SNOWFLAKE_DATABASE", "COMMUNITYCONNECT_DB")
+SCHEMA = _setting("SNOWFLAKE_SCHEMA", "PUBLIC")
+RESOURCES_TABLE = f"{DATABASE}.{SCHEMA}.RESOURCES"
+SEARCH_SERVICE = f"{DATABASE}.{SCHEMA}.RESOURCE_SEARCH"
+AI_MODEL = _setting("CORTEX_MODEL", "llama3.3-70b")
+
+SERVICE_AREA = "Miami-Dade County"
+MAX_RESULTS = 6
+
+# Frontend category value <-> Snowflake CATEGORY value
+CATEGORY_TO_DB = {
+    "veterans": "Veteran Support",
+    "food": "Food Assistance",
+    "employment": "Employment",
+}
+DB_TO_CATEGORY = {v: k for k, v in CATEGORY_TO_DB.items()}
+
+RESULT_COLUMNS = ["NAME", "CATEGORY", "DESCRIPTION", "CITY", "PHONE", "WEBSITE"]
+
 
 # ----------------------------------------
-# LOAD ENVIRONMENT VARIABLES
-# ----------------------------------------
-
-# Locate the .env file inside backend/
-env_path = Path(__file__).resolve().parent.parent / ".env"
-
-load_dotenv(env_path, override=True)
-
-
-# ----------------------------------------
-# SNOWFLAKE CONNECTION
+# CONNECTION
 # ----------------------------------------
 
 def get_snowflake_connection():
-    """
-    Create a connection to Snowflake using
-    credentials stored in the .env file.
-    """
+    """Open a Snowflake connection.
 
+    Preferred: SNOWFLAKE_CONNECTION_NAME, a named connection from
+    ~/.snowflake/connections.toml (keeps credentials out of the project).
+    Fallback: SNOWFLAKE_ACCOUNT / USER / PASSWORD (+ optional AUTHENTICATOR).
+    """
+    common = {
+        "warehouse": None if _placeholder(os.getenv("SNOWFLAKE_WAREHOUSE")) else os.getenv("SNOWFLAKE_WAREHOUSE"),
+        "role": None if _placeholder(os.getenv("SNOWFLAKE_ROLE")) else os.getenv("SNOWFLAKE_ROLE"),
+        "login_timeout": 60,
+        "enable_server_session_keep_alive_auto_detection": False,
+    }
+    common = {k: v for k, v in common.items() if v is not None}
+
+    connection_name = os.getenv("SNOWFLAKE_CONNECTION_NAME")
+    if connection_name:
+        return snowflake.connector.connect(connection_name=connection_name, **common)
+
+    required = ["SNOWFLAKE_ACCOUNT", "SNOWFLAKE_USER", "SNOWFLAKE_PASSWORD"]
+    missing = [name for name in required if _placeholder(os.getenv(name))]
+    if missing:
+        raise RuntimeError(
+            "Snowflake is not configured. Set SNOWFLAKE_CONNECTION_NAME or "
+            + ", ".join(missing) + " in .env"
+        )
+
+    authenticator = os.getenv("SNOWFLAKE_AUTHENTICATOR")
     return snowflake.connector.connect(
         account=os.getenv("SNOWFLAKE_ACCOUNT"),
         user=os.getenv("SNOWFLAKE_USER"),
         password=os.getenv("SNOWFLAKE_PASSWORD"),
-        warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
-        role=os.getenv("SNOWFLAKE_ROLE"),
-        authenticator="snowflake",
-        login_timeout=30,
-        enable_server_session_keep_alive_auto_detection=False
+        authenticator="snowflake" if _placeholder(authenticator) else authenticator,
+        **common,
     )
 
 
 # ----------------------------------------
-# GET COMMUNITY RESOURCES
+# RETRIEVAL
 # ----------------------------------------
 
-def get_resources(category=None):
-    """
-    Retrieve community resources from Snowflake.
-
-    category can be:
-    - veterans
-    - food
-    - employment
-    - None (all categories)
-    """
-
-    connection = get_snowflake_connection()
-    cursor = None
-
-    # Map frontend categories to Snowflake values
-    category_mapping = {
-        "veterans": "Veteran Support",
-        "food": "Food Assistance",
-        "employment": "Employment"
+def _to_resource(row):
+    """Convert a Snowflake row dict to the frontend resource format."""
+    return {
+        "name": row.get("NAME"),
+        "category": DB_TO_CATEGORY.get(row.get("CATEGORY"), row.get("CATEGORY")),
+        "description": row.get("DESCRIPTION"),
+        "location": row.get("CITY"),
+        "phone": row.get("PHONE"),
+        "website": row.get("WEBSITE"),
     }
 
-    # Convert Snowflake categories to frontend values
-    reverse_category_mapping = {
-        value: key
-        for key, value in category_mapping.items()
+
+def _search_filter(category):
+    area = {"@eq": {"SERVICE_AREA": SERVICE_AREA}}
+    if category not in CATEGORY_TO_DB:
+        return area
+    db_value = CATEGORY_TO_DB[category]
+    return {
+        "@and": [
+            area,
+            {"@or": [
+                {"@eq": {"CATEGORY": db_value}},
+                {"@eq": {"SECONDARY_CATEGORY": db_value}},
+            ]},
+        ]
     }
 
+
+def cortex_search(cursor, message, category, limit=MAX_RESULTS):
+    """Retrieve relevant resources with Snowflake Cortex Search."""
+    request = {
+        "query": message,
+        "columns": RESULT_COLUMNS,
+        "filter": _search_filter(category),
+        "limit": limit,
+    }
+    cursor.execute(
+        "SELECT SNOWFLAKE.CORTEX.SEARCH_PREVIEW(%s, %s)",
+        (SEARCH_SERVICE, json.dumps(request)),
+    )
+    row = cursor.fetchone()
+    results = json.loads(row[0]).get("results", []) if row and row[0] else []
+    return [_to_resource(r) for r in results]
+
+
+def sql_search(cursor, category, limit=MAX_RESULTS):
+    """Fallback retrieval with parameterized SQL (no ranking)."""
+    query = (
+        f"SELECT NAME, CATEGORY, DESCRIPTION, CITY, PHONE, WEBSITE FROM {RESOURCES_TABLE} "
+        "WHERE IS_DEMO = FALSE AND SERVICE_AREA = %s"
+    )
+    params = [SERVICE_AREA]
+    if category in CATEGORY_TO_DB:
+        query += " AND (CATEGORY = %s OR SECONDARY_CATEGORY = %s)"
+        params += [CATEGORY_TO_DB[category]] * 2
+    query += " ORDER BY ID LIMIT %s"
+    params.append(limit)
+
+    cursor.execute(query, params)
+    columns = [c[0] for c in cursor.description]
+    return [_to_resource(dict(zip(columns, r))) for r in cursor.fetchall()]
+
+
+def retrieve_resources(cursor, message, category):
+    """Cortex Search first; SQL only if the search service is unavailable.
+
+    Returns (resources, retrieval_method).
+    """
     try:
-        cursor = connection.cursor()
-
-        query = """
-            SELECT
-                NAME,
-                CATEGORY,
-                DESCRIPTION,
-                CITY,
-                PHONE,
-                WEBSITE
-            FROM COMMUNITYCONNECT_DB.PUBLIC.RESOURCES
-        """
-
-        # Filter by category if one was selected
-        if category in category_mapping:
-            query += " WHERE CATEGORY = %s"
-
-            cursor.execute(
-                query,
-                (category_mapping[category],)
-            )
-
-        else:
-            cursor.execute(query)
-
-        rows = cursor.fetchall()
-
-        resources = []
-
-        # Convert SQL rows into dictionaries
-        for row in rows:
-
-            resource = {
-                "name": row[0],
-                "category": reverse_category_mapping.get(
-                    row[1], row[1]
-                ),
-                "description": row[2],
-                "location": row[3],
-                "phone": row[4],
-                "website": row[5]
-            }
-
-            resources.append(resource)
-
-        return resources
-
-    finally:
-        # Close cursor and database connection
-        if cursor is not None:
-            cursor.close()
-
-        connection.close()
-
-    
-import json
+        return cortex_search(cursor, message, category), "cortex_search"
+    except Exception:
+        log.exception("Cortex Search failed; falling back to SQL retrieval")
+        return sql_search(cursor, category), "sql_fallback"
 
 
-def generate_ai_response(message, resources):
-    """
-    Generate an AI response grounded in Snowflake resources.
-    """
+# ----------------------------------------
+# GENERATION
+# ----------------------------------------
 
-    if not resources:
-        return (
-            "I couldn't find verified matching resources "
-            "in our database. Please try another category."
-        )
+def generate_ai_response(cursor, message, resources):
+    """Generate a reply with Cortex AI_COMPLETE, grounded in `resources`."""
+    context = [
+        {
+            "name": r["name"],
+            "category": r["category"],
+            "description": r["description"],
+            "location": r["location"],
+        }
+        for r in resources
+    ]
 
-    # Convert resources into JSON for the AI model
-    resources_json = json.dumps(
-        resources,
-        ensure_ascii=False
-    )
+    prompt = f"""You are CommunityConnect AI, a friendly assistant that helps people in Miami-Dade County find community assistance programs.
 
-    prompt = f"""
-You are CommunityConnect AI, a helpful community resource assistant.
+RULES:
+- Recommend ONLY organizations listed in RESOURCE DATA. Never invent organizations.
+- Do NOT write phone numbers, addresses, websites, eligibility rules, or hours. The user sees verified contact details on resource cards below your reply.
+- Do not claim a service is offered unless the description supports it.
+- Do not claim an organization is near the user.
+- If the user has several needs (for example veteran support, a job, and food), address each need with the matching organizations.
+- If no listed organization fits a need, say so honestly.
+- Keep the reply under 150 words, plain text, no markdown.
 
-Your task is to help users find support services.
+RESOURCE DATA (JSON):
+{json.dumps(context, ensure_ascii=False)}
 
-IMPORTANT RULES:
-- Only recommend organizations provided in the RESOURCE DATA.
-- Never invent organizations, addresses, phone numbers, or websites.
-- Do not claim an organization offers a service unless the data supports it.
-- Keep your response friendly, concise, and helpful.
-- Do not include fictional or demo organizations.
-- If information is missing, explain that it is unavailable.
-
-RESOURCE DATA:
-{resources_json}
-
-USER QUESTION:
+USER MESSAGE:
 {message}
-
-Provide a helpful answer based only on the resources above.
 """
 
+    cursor.execute("SELECT AI_COMPLETE(%s, %s)", (AI_MODEL, prompt))
+    row = cursor.fetchone()
+    reply = row[0].strip() if row and row[0] else ""
+    # AI_COMPLETE may return a JSON-quoted string.
+    if reply.startswith('"') and reply.endswith('"'):
+        try:
+            reply = json.loads(reply)
+        except ValueError:
+            pass
+    return reply
+
+
+# ----------------------------------------
+# REQUEST PIPELINE (one connection per request)
+# ----------------------------------------
+
+def answer_question(message, category):
+    """Retrieve resources and generate a grounded reply using one connection.
+
+    Raises on Snowflake connection/retrieval failure (the caller returns an
+    error; no fictional fallback data is ever used).
+    """
     connection = get_snowflake_connection()
-    cursor = None
-
     try:
-        cursor = connection.cursor()
+        with connection.cursor() as cursor:
+            resources, retrieval = retrieve_resources(cursor, message, category)
 
-        query = """
-            SELECT AI_COMPLETE(
-                'llama3.3-70b',
-                %s
-            )
-        """
+            if not resources:
+                return {
+                    "reply": (
+                        "I couldn't find matching resources in our Miami-Dade database for that request. "
+                        "Try another category or describe your need differently."
+                    ),
+                    "resources": [],
+                    "source": {"retrieval": retrieval, "generation": None},
+                }
 
-        cursor.execute(query, (prompt,))
+            try:
+                reply = generate_ai_response(cursor, message, resources)
+                generation = AI_MODEL if reply else None
+            except Exception:
+                log.exception("Cortex AI_COMPLETE failed")
+                reply, generation = "", None
 
-        result = cursor.fetchone()
+            if not reply:
+                reply = "I found some community resources that may help. Please review the organizations below."
 
-        if result and result[0]:
-            return result[0]
-
-        return "I couldn't generate a response at this time."
-
+            return {
+                "reply": reply,
+                "resources": resources,
+                "source": {"retrieval": retrieval, "generation": generation},
+            }
     finally:
-        if cursor is not None:
-            cursor.close()
-
         connection.close()
-

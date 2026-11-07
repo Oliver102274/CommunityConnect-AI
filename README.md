@@ -2,7 +2,7 @@
 
 An AI-powered web application that helps people find local community assistance programs based on their needs and location.
 
-> **Status:** Stage 3 — frontend is ready for live integration and works in **demo mode** today. The Flask `POST /api/chat` endpoint, Snowflake Cortex AI, Cortex Search (RAG), and resource database are **not implemented yet** (owned by Developer 2).
+> **Status:** MVP running end to end. Flask serves the frontend and `POST /api/chat` on <http://127.0.0.1:5050>, retrieves verified Miami-Dade resources with **Snowflake Cortex Search**, and writes grounded replies with **Snowflake Cortex AI** (`AI_COMPLETE`). The resource database currently holds a small, verified starter set.
 
 ---
 
@@ -53,10 +53,15 @@ CommunityConnect-AI/
 │   └── assets/             # Images and icons
 │
 ├── backend/
-│   ├── app.py              # Flask application
+│   ├── app.py              # Flask app: serves frontend + POST /api/chat (port 5050)
 │   ├── requirements.txt    # Python dependencies
-│   └── services/           # Snowflake / Cortex integrations (future)
-│       └── __init__.py
+│   ├── test_connection.py  # Quick Snowflake connection check
+│   └── services/
+│       ├── __init__.py
+│       └── snowflake_service.py  # Cortex Search retrieval + Cortex AI_COMPLETE
+│
+├── sql/
+│   └── setup_resources.sql # Creates RESOURCES table, verified data, Cortex Search service
 │
 ├── .env.example            # Environment variable template
 ├── .gitignore
@@ -88,15 +93,24 @@ code .
 
 ### 2. Set up environment variables
 
-Copy the template and fill in your own values. `.env` is ignored by Git and must never be committed.
+Copy the template. `.env` is ignored by Git and must never be committed.
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Snowflake authentication settings will be finalized by Developer 2. Credentials are used only by the backend — never in the frontend.
+Then choose **one** authentication option in `.env`:
 
-### 3. Install backend dependencies
+- **Recommended — named connection:** set `SNOWFLAKE_CONNECTION_NAME` to a connection in `~/.snowflake/connections.toml` (the same file the Snowflake CLI / Cortex Code uses). No credentials are stored in the project. OAuth/browser connections may open a browser sign-in the first time.
+- **Password:** set `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, and `SNOWFLAKE_PASSWORD` (only if your account allows password login).
+
+Also set `SNOWFLAKE_WAREHOUSE` (e.g. `COMPUTE_WH`) if your connection has no default warehouse. Unedited `your_..._here` placeholders are ignored. Credentials are used only by the backend — never in the frontend.
+
+### 3. Create the Snowflake data (one time)
+
+Run `sql/setup_resources.sql` in Snowflake (Snowsight worksheet or `snow sql -f sql/setup_resources.sql`). It creates `COMMUNITYCONNECT_DB.PUBLIC.RESOURCES`, loads verified Miami-Dade resources (each with its official `SOURCE_URL`), and creates the Cortex Search service `RESOURCE_SEARCH`.
+
+### 4. Install backend dependencies
 
 ```powershell
 cd backend
@@ -108,28 +122,47 @@ pip install -r requirements.txt
 > If PowerShell blocks the activation script, run:
 > `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
 
-### 4. Start the Flask server
+### 5. Start the app (frontend + API on one address)
 
 ```powershell
+cd backend
 python app.py
 ```
 
-Verify it works by opening <http://127.0.0.1:5000/api/health> in your browser. You should see:
+Then open the demo URL:
+
+**<http://127.0.0.1:5050/?mode=live>**
+
+Health check: <http://127.0.0.1:5050/api/health> should return:
 
 ```json
 { "service": "CommunityConnect AI backend", "status": "ok" }
 ```
 
-### 5. Open the frontend
+### 6. (Optional) Frontend only, without the backend
 
-Open `frontend/index.html` directly in your browser, or serve it locally:
+Open <http://127.0.0.1:5050/?mode=demo>, or serve the static files:
 
 ```powershell
 cd frontend
 python -m http.server 8000
 ```
 
-Then visit <http://localhost:8000>. (The VS Code **Live Server** extension also works.)
+Then visit <http://localhost:8000/?mode=demo>. (Live mode from port 8000 calls Flask at `http://127.0.0.1:5050`, which would require CORS — use port 5050 instead.)
+
+## How It Works (Live Mode)
+
+1. The browser sends `POST /api/chat` to Flask (same origin, no CORS).
+2. Flask opens **one** Snowflake connection for the request.
+3. **Cortex Search** (`RESOURCE_SEARCH`) retrieves up to 6 relevant resources, filtered to `SERVICE_AREA = 'Miami-Dade County'` and, if a category is selected, to that category (primary or secondary). Combined requests such as "I'm a veteran who needs a job and food" return resources across all matching needs.
+4. **Cortex AI** (`AI_COMPLETE`, model `llama3.3-70b`) writes a short reply using only the retrieved records. The prompt forbids inventing organizations or writing contact details; phone numbers and websites shown on cards come straight from the database.
+5. The connection is closed and Flask returns `{ reply, resources, source }`.
+
+Fallbacks (no fictional data, ever):
+
+- Cortex Search unavailable → parameterized SQL retrieval (`source.retrieval = "sql_fallback"`).
+- Cortex AI fails → a generic reply plus the real resource cards (`source.generation = null`).
+- Snowflake unreachable → HTTP 503; the frontend shows an error message.
 
 ## Frontend Features (Stage 2)
 
@@ -145,20 +178,20 @@ Then visit <http://localhost:8000>. (The VS Code **Live Server** extension also 
 
 | Mode | What it does |
 | --- | --- |
-| **Demo** (default) | No network calls. Returns example replies and **fictional placeholder** resource cards so the UI can be shown without the backend. Demo replies and cards are clearly labeled as examples, not verified recommendations. |
-| **Live** | Sends requests to the Flask backend at `POST /api/chat`. |
+| **Live** (default) | Sends requests to the Flask backend at `POST /api/chat` and shows real Snowflake data. |
+| **Demo** | No network calls. Returns example replies and **fictional placeholder** resource cards so the UI can be shown without the backend. Demo replies and cards are clearly labeled as examples, not verified recommendations. |
 
 Demo resources are intentionally fictional (e.g. "Example Community Food Pantry") and contain **no real organizations, phone numbers, addresses, or websites**.
 
 ### Switching modes
 
 - **Per page load:** add a URL parameter
-  - `http://localhost:8000/?mode=live`
-  - `http://localhost:8000/?mode=demo`
+  - `http://127.0.0.1:5050/?mode=live`
+  - `http://127.0.0.1:5050/?mode=demo`
 - **Change the default:** edit `DEFAULT_MODE` at the top of `frontend/js/api.js`:
 
   ```js
-  const DEFAULT_MODE = "demo"; // change to "live" once the backend is ready
+  const DEFAULT_MODE = "live"; // or "demo"
   ```
 
 In live mode, if Flask isn't running, the chat shows a friendly "couldn't reach the assistant" message. Live mode **never** falls back to demo results.
@@ -169,9 +202,9 @@ In live mode, if Flask isn't running, the chat shows a friendly "couldn't reach 
 
 | How the page is opened | API URL used |
 | --- | --- |
-| `file://` (double-clicked `index.html`) | `http://127.0.0.1:5000/api/chat` |
-| Static dev server on port `8000` or `5500` (Live Server) | `http://127.0.0.1:5000/api/chat` |
-| Served by Flask (any other origin) | `/api/chat` (same-origin, relative) |
+| `file://` (double-clicked `index.html`) | `http://127.0.0.1:5050/api/chat` |
+| Static dev server on port `8000` or `5500` (Live Server) | `http://127.0.0.1:5050/api/chat` |
+| Served by Flask on port 5050 (recommended) | `/api/chat` (same-origin, relative) |
 
 ### Live mode error handling
 
@@ -185,9 +218,7 @@ In live mode, if Flask isn't running, the chat shows a friendly "couldn't reach 
 
 Responses are validated in `api.js`: `resources` must be an array (missing is treated as empty), entries without a name or description are skipped, and at most 20 cards are shown. All text is rendered as plain text, and only `http(s)` website links are allowed.
 
-## Proposed Chat API Contract
-
-> This contract is **proposed** and will be confirmed by Developer 2 before integration.
+## Chat API Contract
 
 `POST /api/chat`
 
@@ -217,48 +248,46 @@ Response:
       "phone": null,
       "website": null
     }
-  ]
+  ],
+  "source": { "retrieval": "cortex_search", "generation": "llama3.3-70b" }
 }
 ```
 
-`phone` and `website` may be `null`; the frontend shows "Not available" in that case.
+`phone` and `website` may be `null`; the frontend shows "Not available" in that case. `source` is informational (shows whether Cortex Search / Cortex AI produced the answer); the frontend ignores it.
 
-### Connecting the backend (for Developer 2)
-
-1. Add a `POST /api/chat` route in `backend/app.py` that accepts and returns the JSON above.
-2. Choose how the frontend reaches Flask:
-   - **Option A — separate servers (default):** the frontend on `localhost:8000` calls `http://127.0.0.1:5000`. Enable CORS in Flask (e.g. `flask-cors`) for that origin.
-   - **Option B — Flask serves the frontend:** serve the `frontend/` folder from Flask on port 5000. The frontend then uses relative URLs automatically and CORS is not needed.
-3. Test with `?mode=live`, then set `DEFAULT_MODE = "live"` in `frontend/js/api.js`.
-4. Return only verified resource data from Snowflake — never generated contact details.
-
-The endpoint URL is configured in `frontend/js/api.js` (`API_BASE` / `CHAT_ENDPOINT`).
+Errors return JSON `{ "error": "..." }` with HTTP `400` (invalid input: missing message, message over 1000 characters, unknown category, non-string location) or `503` (Snowflake unavailable).
 
 ### Testing live mode
 
-1. Start Flask: `cd backend` then `python app.py` (port 5000).
-2. Start the frontend: `cd frontend` then `python -m http.server 8000`.
-3. Open <http://localhost:8000/?mode=live> and send a message for each category.
-4. Check the browser DevTools **Network** tab: the request to `/api/chat` should return `200` with the JSON shape above.
+1. Start Flask: `cd backend` then `python app.py`.
+2. Open <http://127.0.0.1:5050/?mode=live> and send a message for each category, plus a combined one ("I'm a veteran who needs a job and food assistance in Miami.").
+3. Or test the API directly (PowerShell):
 
-### Integration status and remaining requirements
+   ```powershell
+   Invoke-RestMethod http://127.0.0.1:5050/api/chat -Method Post -ContentType application/json `
+     -Body '{"message":"I need food assistance in Miami","category":"food","location":"Miami-Dade County"}'
+   ```
 
-- [x] Frontend sends the agreed request and validates the agreed response
-- [x] Error handling for network, timeout, HTTP, and invalid responses
-- [x] Tested against a mock response matching the contract (not committed)
-- [ ] Developer 2: implement `POST /api/chat` in Flask
-- [ ] Developer 2: enable CORS for `http://localhost:8000` (or serve `frontend/` from Flask)
-- [ ] Developer 2: return the agreed `reply` / `resources` format, using `veterans`, `food`, `employment` category values
-- [ ] Both: test end to end with `?mode=live`, then switch `DEFAULT_MODE` to `"live"`
+   `source.retrieval` should be `cortex_search` and `source.generation` should be `llama3.3-70b`.
+
+### Integration status
+
+- [x] `POST /api/chat` implemented with the agreed request/response format
+- [x] Flask serves the frontend on port 5050 (same origin, no CORS needed)
+- [x] Snowflake `RESOURCES` table with verified Miami-Dade records
+- [x] Cortex Search retrieval, with SQL fallback
+- [x] Cortex AI grounded replies
+- [x] Tested end to end for veterans, food, employment, and combined requests
+- [ ] Expand the resource database with more verified organizations
 
 ## Roadmap
 
 - [x] **Stage 1:** Project structure, minimal Flask server, starter frontend
 - [x] **Stage 2:** Chatbot UI, resource card components, and demo mode
-- [x] **Stage 3:** Frontend prepared for live API integration (backend endpoint pending)
-- [ ] **Backend (Developer 2):** Snowflake database with Miami-Dade resource data
-- [ ] **Stage 4:** Cortex Search service for retrieval (RAG)
-- [ ] **Stage 5:** Cortex AI REST API integration for chat responses
-- [ ] **Stage 6:** Frontend/backend integration and API endpoints
-- [ ] **Stage 7:** Testing, polish, and demo preparation
+- [x] **Stage 3:** Frontend prepared for live API integration
+- [x] **Backend:** Flask `POST /api/chat`, Snowflake database with verified Miami-Dade resources
+- [x] **Stage 4:** Cortex Search service for retrieval (RAG)
+- [x] **Stage 5:** Cortex AI (`AI_COMPLETE`) grounded chat responses
+- [x] **Stage 6:** Frontend/backend integration on one origin (port 5050)
+- [ ] **Stage 7:** More verified resources, polish, and demo preparation
 - [ ] **Future:** Expand to more counties and assistance categories

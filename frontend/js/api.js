@@ -20,14 +20,14 @@
 "use strict";
 
 (function () {
-  const DEFAULT_MODE = "demo";
+  const DEFAULT_MODE = "live";
 
   // Ports used by static dev servers (python -m http.server, VS Code Live Server).
   // When the page is served from one of these, or opened as a file, requests go
   // to the local Flask server. Otherwise (e.g. Flask serves the frontend itself)
   // relative, same-origin URLs are used.
   const STATIC_DEV_PORTS = ["8000", "5500"];
-  const LOCAL_FLASK_URL = "http://127.0.0.1:5000";
+  const LOCAL_FLASK_URL = "http://127.0.0.1:5050";
 
   const REQUEST_TIMEOUT_MS = 30000;
   const DEMO_DELAY_MS = 900;

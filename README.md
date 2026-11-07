@@ -1,87 +1,155 @@
-# CommunityConnect AI
+<div align="center">
 
-An AI-powered web application that helps people find local community assistance programs based on their needs and location.
+<img src="docs/images/banner.png" alt="CommunityConnect AI - Connecting people to the help they need through AI." width="100%">
 
-> **Status:** MVP running end to end. Flask serves the frontend and `POST /api/chat` on <http://127.0.0.1:5050>, retrieves verified Miami-Dade resources with **Snowflake Cortex Search**, and writes grounded replies with **Snowflake Cortex AI** (`AI_COMPLETE`). The resource database currently holds a small, verified starter set.
+<h1>CommunityConnect AI</h1>
+
+<p><strong>Connecting people to the help they need through AI.</strong></p>
+
+<p>
+An AI assistant that helps people in Miami-Dade County find veteran support, food assistance,
+and employment programs — described in their own words, answered with real, verified community resources.
+</p>
+
+<!-- Technology -->
+<p>
+<img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+<img src="https://img.shields.io/badge/Flask-000000?style=for-the-badge&logo=flask&logoColor=white" alt="Flask">
+<img src="https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white" alt="HTML5">
+<img src="https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white" alt="CSS3">
+<img src="https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black" alt="JavaScript">
+<br>
+<img src="https://img.shields.io/badge/Snowflake-29B5E8?style=for-the-badge&logo=snowflake&logoColor=white" alt="Snowflake">
+<img src="https://img.shields.io/badge/Cortex_AI-0B2545?style=for-the-badge&logo=snowflake&logoColor=29B5E8" alt="Snowflake Cortex AI">
+<img src="https://img.shields.io/badge/Cortex_Search-0B2545?style=for-the-badge&logo=snowflake&logoColor=29B5E8" alt="Snowflake Cortex Search">
+<img src="https://img.shields.io/badge/Git-F05032?style=for-the-badge&logo=git&logoColor=white" alt="Git">
+<img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub">
+</p>
+
+<!-- Project -->
+<p>
+<img src="https://img.shields.io/badge/Hackathon-Project-0F8B8D?style=flat-square" alt="Hackathon Project">
+<img src="https://img.shields.io/badge/AI-Powered-14A5A8?style=flat-square" alt="AI-Powered">
+<img src="https://img.shields.io/badge/Miami--Dade-County-13315C?style=flat-square" alt="Miami-Dade County">
+<img src="https://img.shields.io/badge/Status-Working_MVP-2EA44F?style=flat-square" alt="Status: Working MVP">
+</p>
+
+<p>
+<a href="#-getting-started">Getting Started</a> •
+<a href="#-how-it-works">How It Works</a> •
+<a href="#-system-architecture">Architecture</a> •
+<a href="#-screenshots">Screenshots</a> •
+<a href="#-our-team">Team</a>
+</p>
+
+</div>
 
 ---
 
-## The Problem
+## 🤝 About CommunityConnect AI
 
-People in need of help — veterans, families facing food insecurity, and job seekers — often struggle to find the right local programs. Information is scattered across many websites, eligibility rules are confusing, and it is hard to know where to start.
+CommunityConnect AI is a chat-based assistant for people looking for local help. A user describes their situation — *"I'm a veteran who needs a job and food assistance in Miami"* — and the app returns a friendly answer plus resource cards for real organizations, each with its phone number and official website.
 
-## Our Solution
+The MVP focuses on **Miami-Dade County** and three categories:
 
-CommunityConnect AI provides a simple chat-based assistant. Users describe their situation in plain language, and the app returns relevant, local assistance programs as easy-to-read resource cards.
+| 🎖️ Veteran Support | 🍎 Food Assistance | 💼 Employment |
+| --- | --- | --- |
+| VA health care, homeless Veteran services, transition support | Food banks and nutrition benefits (SNAP) | Job search, training, and Veteran career services |
 
-Our initial focus is **Miami-Dade County**, with three categories:
+---
 
-- Veteran support
-- Food assistance
-- Employment
+## ❗ The Problem
 
-## Technology Stack
+People who need help — veterans, families facing food insecurity, and job seekers — often struggle to find the right local programs. Information is scattered across many websites, eligibility rules are confusing, and it is hard to know where to start, especially when someone has several needs at once.
+
+## 💡 Our Solution
+
+One simple conversation. CommunityConnect AI uses **Snowflake Cortex Search** to find the most relevant programs in a curated, source-verified database, then uses **Snowflake Cortex AI** to explain them in plain language. Contact details always come straight from the database — the AI is never allowed to invent organizations, phone numbers, or websites.
+
+---
+
+## ✨ Key Features
+
+- 💬 **Natural-language chat** — Enter to send, Shift+Enter for a new line, typing indicator, example prompts
+- 🔎 **Retrieval-augmented answers (RAG)** — Cortex Search finds relevant resources; Cortex AI writes a grounded reply
+- 🧩 **Handles combined needs** — one message can cover veteran support, a job, and food
+- 🗂️ **Category focus** — Veteran Support, Food Assistance, Employment
+- 🪪 **Resource cards** — name, category, description, location, click-to-call phone, official website
+- ✅ **Verified data** — every record stores its official source URL and verification date
+- 🛡️ **Safe by design** — untrusted text rendered as plain text, only `http(s)` links, no credentials in the browser
+- 🧪 **Demo mode** — clearly labeled fictional examples for previewing the UI without Snowflake
+- 📱 **Responsive & accessible** — mobile menu, skip link, ARIA live regions, reduced-motion support
+
+---
+
+## ⚙️ How It Works
+
+1. The user sends a message (and optionally a category) from the browser.
+2. The frontend calls `POST /api/chat` on the same origin — no CORS, no credentials in the browser.
+3. Flask opens **one** Snowflake connection for the request.
+4. **Cortex Search** (`RESOURCE_SEARCH`) returns up to 6 relevant resources, filtered to `Miami-Dade County` and, when selected, to the chosen category.
+5. **Cortex AI** (`AI_COMPLETE`, `llama3.3-70b`) writes a short reply using only those records.
+6. Flask closes the connection and returns `{ reply, resources, source }`; the frontend renders the reply and the cards.
+
+**Fallbacks — never fictional data:**
+Cortex Search unavailable → parameterized SQL retrieval · Cortex AI fails → generic reply with the real cards · Snowflake unreachable → HTTP 503 and a friendly error.
+
+---
+
+## 🧰 Technology Stack
 
 | Layer | Technology |
 | --- | --- |
-| Frontend | HTML, CSS, JavaScript |
-| Backend | Python, Flask |
-| Database | Snowflake |
-| AI | Snowflake Cortex AI REST API |
-| RAG | Snowflake Cortex Search |
+| Frontend | HTML5, CSS3, vanilla JavaScript |
+| Backend | Python, Flask (Gunicorn in production) |
+| Database | Snowflake (`COMMUNITYCONNECT_DB.PUBLIC.RESOURCES`) |
+| Retrieval (RAG) | Snowflake Cortex Search (`RESOURCE_SEARCH`) |
+| Generation | Snowflake Cortex AI — `AI_COMPLETE` with `llama3.3-70b` |
+| Auth | Local: named Snowflake connection · Server: key-pair service user |
 | Version control | Git and GitHub |
 
-## MVP Features
+---
 
-- Chatbot interface where users describe their needs
-- AI-generated answers grounded in a curated resource database (RAG)
-- Resource cards with program name, description, contact info, and location
-- Filtering by category: veterans, food, employment
-- Miami-Dade County coverage
+## 🏗️ System Architecture
 
-## Project Structure
-
-```text
-CommunityConnect-AI/
-├── frontend/
-│   ├── index.html          # Main page
-│   ├── css/
-│   │   └── styles.css      # Styles
-│   ├── js/
-│   │   ├── api.js          # API layer: demo/live mode, POST /api/chat
-│   │   └── main.js         # UI logic: chat, categories, resource cards
-│   └── assets/             # Images and icons
-│
-├── backend/
-│   ├── app.py              # Flask app: serves frontend + POST /api/chat (port 5050)
-│   ├── requirements.txt    # Python dependencies
-│   ├── test_connection.py  # Quick Snowflake connection check
-│   └── services/
-│       ├── __init__.py
-│       └── snowflake_service.py  # Cortex Search retrieval + Cortex AI_COMPLETE
-│
-├── sql/
-│   └── setup_resources.sql # Creates RESOURCES table, verified data, Cortex Search service
-│
-├── .env.example            # Environment variable template
-├── .gitignore
-└── README.md
+```mermaid
+flowchart LR
+    U([👤 User]) --> F["Frontend<br/>HTML · CSS · JS"]
+    F -- "POST /api/chat" --> A["Flask API<br/>(same origin)"]
+    A -- "query + filters" --> S["Snowflake<br/>Cortex Search"]
+    S -- "matching rows" --> D[("RESOURCES<br/>verified data")]
+    S -- "top resources" --> A
+    A -- "prompt + resources" --> C["Snowflake<br/>Cortex AI<br/>AI_COMPLETE"]
+    C -- "grounded reply" --> A
+    A -- "reply + resource cards" --> R["📋 Recommendations"]
+    R --> U
 ```
 
-## Developer Responsibilities
+---
 
-| Developer | Responsibilities |
-| --- | --- |
-| Developer 1 | Frontend, chatbot interface, resource cards, frontend/backend integration |
-| Developer 2 | Flask backend, Snowflake database, Cortex AI, RAG, API endpoints |
+## 📸 Screenshots
 
-## Local Setup (Windows + VS Code)
+All screenshots are from the running app in **live mode** with real Snowflake responses.
+
+<p align="center"><strong>Homepage</strong></p>
+<p align="center"><img src="docs/images/homepage.png" alt="CommunityConnect AI homepage" width="90%"></p>
+
+<p align="center"><strong>Chatbot — combined veteran, job, and food request</strong></p>
+<p align="center"><img src="docs/images/chatbot.png" alt="Chatbot answering a combined veteran, employment, and food request" width="90%"></p>
+
+<p align="center"><strong>Real resource recommendations from Snowflake</strong></p>
+<p align="center"><img src="docs/images/resources.png" alt="Resource cards with verified organizations, phone numbers, and websites" width="90%"></p>
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
 
 - [Python 3.10+](https://www.python.org/downloads/)
 - [Git](https://git-scm.com/downloads)
-- [VS Code](https://code.visualstudio.com/)
+- [VS Code](https://code.visualstudio.com/) (recommended)
+- A Snowflake account with access to Cortex AI and Cortex Search
 
 ### 1. Clone the repository
 
@@ -91,159 +159,96 @@ cd CommunityConnect-AI
 code .
 ```
 
-### 2. Set up environment variables
-
-Copy the template. `.env` is ignored by Git and must never be committed.
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Then choose **one** authentication option in `.env`:
-
-- **Recommended — named connection:** set `SNOWFLAKE_CONNECTION_NAME` to a connection in `~/.snowflake/connections.toml` (the same file the Snowflake CLI / Cortex Code uses). No credentials are stored in the project. OAuth/browser connections may open a browser sign-in the first time.
-- **Password:** set `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, and `SNOWFLAKE_PASSWORD` (only if your account allows password login).
-
-Also set `SNOWFLAKE_WAREHOUSE` (e.g. `COMPUTE_WH`) if your connection has no default warehouse. Unedited `your_..._here` placeholders are ignored. Credentials are used only by the backend — never in the frontend.
-
-### 3. Create the Snowflake data (one time)
-
-Run `sql/setup_resources.sql` in Snowflake (Snowsight worksheet or `snow sql -f sql/setup_resources.sql`). It creates `COMMUNITYCONNECT_DB.PUBLIC.RESOURCES`, loads verified Miami-Dade resources (each with its official `SOURCE_URL`), and creates the Cortex Search service `RESOURCE_SEARCH`.
-
-### 4. Install backend dependencies
+### 2. Install backend dependencies
 
 ```powershell
 cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+cd ..
 ```
 
-> If PowerShell blocks the activation script, run:
-> `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+> If PowerShell blocks the activation script, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
-### 5. Start the app (frontend + API on one address)
+### 3. Configure environment variables
+
+```powershell
+Copy-Item .env.example .env
+```
+
+`.env` is ignored by Git and must never be committed. Choose **one** authentication option:
+
+| Option | Settings | Use for |
+| --- | --- | --- |
+| Named connection *(recommended locally)* | `SNOWFLAKE_CONNECTION_NAME=<name in ~/.snowflake/connections.toml>` | Local development — reuses your Snowflake CLI / Cortex Code sign-in |
+| Key pair | `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PRIVATE_KEY` | Servers (Render) |
+| Password | `SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, `SNOWFLAKE_PASSWORD` | Only if your account allows password login |
+
+Set `SNOWFLAKE_WAREHOUSE` (e.g. `COMPUTE_WH`) if your connection has no default warehouse. Unedited `your_..._here` placeholders are ignored.
+
+---
+
+## ❄️ Snowflake Setup
+
+Run [`sql/setup_resources.sql`](sql/setup_resources.sql) once (Snowsight worksheet or `snow sql -f sql/setup_resources.sql`). It creates:
+
+- `COMMUNITYCONNECT_DB.PUBLIC.RESOURCES` — verified Miami-Dade resources, each with `SOURCE_URL` and `VERIFIED_ON`
+- `COMMUNITYCONNECT_DB.PUBLIC.RESOURCE_SEARCH` — the Cortex Search service used for retrieval
+
+For a deployed server, create a read-only, key-pair service user (see [Public Deployment](#-public-deployment-render)).
+
+---
+
+## 💻 How to Run Locally
 
 ```powershell
 cd backend
 python app.py
 ```
 
-Then open the demo URL:
+Open **<http://127.0.0.1:5050/?mode=live>** — the website and API share one address.
 
-**<http://127.0.0.1:5050/?mode=live>**
+| URL | Purpose |
+| --- | --- |
+| <http://127.0.0.1:5050/> | App (live mode is the default) |
+| <http://127.0.0.1:5050/?mode=demo> | Labeled demo mode — fictional examples, no Snowflake |
+| <http://127.0.0.1:5050/api/health> | Health check → `{"status": "ok", ...}` |
 
-Health check: <http://127.0.0.1:5050/api/health> should return:
-
-```json
-{ "service": "CommunityConnect AI backend", "status": "ok" }
-```
-
-### 6. (Optional) Frontend only, without the backend
-
-Open <http://127.0.0.1:5050/?mode=demo>, or serve the static files:
+Test the API directly:
 
 ```powershell
-cd frontend
-python -m http.server 8000
+Invoke-RestMethod http://127.0.0.1:5050/api/chat -Method Post -ContentType application/json `
+  -Body '{"message":"I need food assistance in Miami","category":"food","location":"Miami-Dade County"}'
 ```
 
-Then visit <http://localhost:8000/?mode=demo>. (Live mode from port 8000 calls Flask at `http://127.0.0.1:5050`, which would require CORS — use port 5050 instead.)
+A live answer includes `"source": { "retrieval": "cortex_search", "generation": "llama3.3-70b" }`.
 
-## How It Works (Live Mode)
-
-1. The browser sends `POST /api/chat` to Flask (same origin, no CORS).
-2. Flask opens **one** Snowflake connection for the request.
-3. **Cortex Search** (`RESOURCE_SEARCH`) retrieves up to 6 relevant resources, filtered to `SERVICE_AREA = 'Miami-Dade County'` and, if a category is selected, to that category (primary or secondary). Combined requests such as "I'm a veteran who needs a job and food" return resources across all matching needs.
-4. **Cortex AI** (`AI_COMPLETE`, model `llama3.3-70b`) writes a short reply using only the retrieved records. The prompt forbids inventing organizations or writing contact details; phone numbers and websites shown on cards come straight from the database.
-5. The connection is closed and Flask returns `{ reply, resources, source }`.
-
-Fallbacks (no fictional data, ever):
-
-- Cortex Search unavailable → parameterized SQL retrieval (`source.retrieval = "sql_fallback"`).
-- Cortex AI fails → a generic reply plus the real resource cards (`source.generation = null`).
-- Snowflake unreachable → HTTP 503; the frontend shows an error message.
-
-## Frontend Features (Stage 2)
-
-- Responsive header with mobile menu, "Powered by Snowflake" label, and a Demo/Live mode badge
-- Welcome section with a call to action
-- Three selectable assistance categories (Veteran Support, Food Assistance, Employment) that pre-fill a starter message
-- Chatbot interface: welcome message, user/AI message styles, Enter to send (Shift+Enter for a new line), typing indicator, auto-scroll, disabled send button while empty or loading, friendly error messages, and clickable example prompts
-- Reusable resource cards (name, category, description, location, phone, website) with "Not available" fallbacks for missing details
-- Safe rendering: backend text is inserted as plain text and only `http(s)` links are allowed
-- Accessible markup (skip link, ARIA live regions, keyboard focus styles) and reduced-motion support
-
-## Demo Mode vs. Live Mode
-
-| Mode | What it does |
-| --- | --- |
-| **Live** (default) | Sends requests to the Flask backend at `POST /api/chat` and shows real Snowflake data. |
-| **Demo** | No network calls. Returns example replies and **fictional placeholder** resource cards so the UI can be shown without the backend. Demo replies and cards are clearly labeled as examples, not verified recommendations. |
-
-Demo resources are intentionally fictional (e.g. "Example Community Food Pantry") and contain **no real organizations, phone numbers, addresses, or websites**.
-
-### Switching modes
-
-- **Per page load:** add a URL parameter
-  - `http://127.0.0.1:5050/?mode=live`
-  - `http://127.0.0.1:5050/?mode=demo`
-- **Change the default:** edit `DEFAULT_MODE` at the top of `frontend/js/api.js`:
-
-  ```js
-  const DEFAULT_MODE = "live"; // or "demo"
-  ```
-
-In live mode, if Flask isn't running, the chat shows a friendly "couldn't reach the assistant" message. Live mode **never** falls back to demo results.
-
-### Which API URL the frontend uses
-
-`frontend/js/api.js` picks the API base automatically:
-
-| How the page is opened | API URL used |
-| --- | --- |
-| `file://` (double-clicked `index.html`) | `http://127.0.0.1:5050/api/chat` |
-| Static dev server on port `8000` or `5500` (Live Server) | `http://127.0.0.1:5050/api/chat` |
-| Served by Flask on port 5050 (recommended) | `/api/chat` (same-origin, relative) |
-
-### Live mode error handling
-
-| Situation | What the user sees |
-| --- | --- |
-| Flask not running / CORS blocked | "We couldn't reach the CommunityConnect assistant right now…" |
-| No response within 30 seconds | "Sorry, that took too long…" |
-| HTTP 5xx | "The assistant ran into a problem on our side…" |
-| HTTP 4xx | "We couldn't process that request…" |
-| Invalid JSON or wrong shape | "We received an unexpected response…" |
-
-Responses are validated in `api.js`: `resources` must be an array (missing is treated as empty), entries without a name or description are skipped, and at most 20 cards are shown. All text is rendered as plain text, and only `http(s)` website links are allowed.
-
-## Chat API Contract
-
-`POST /api/chat`
+<details>
+<summary><strong>📡 API reference — <code>POST /api/chat</code></strong></summary>
 
 Request:
 
 ```json
 {
-  "message": "I need employment assistance",
-  "category": "employment",
+  "message": "I need food assistance in Miami",
+  "category": "food",
   "location": "Miami-Dade County"
 }
 ```
 
-Allowed `category` values: `"veterans"`, `"food"`, `"employment"`, or `null` (all categories).
+`category`: `"veterans"`, `"food"`, `"employment"`, or `null` (all).
 
 Response:
 
 ```json
 {
-  "reply": "Here are some resources that may help.",
+  "reply": "Here are some community resources that may help.",
   "resources": [
     {
       "name": "Organization name",
-      "category": "employment",
-      "description": "Description",
+      "category": "food",
+      "description": "Organization description",
       "location": "Miami-Dade County",
       "phone": null,
       "website": null
@@ -253,41 +258,97 @@ Response:
 }
 ```
 
-`phone` and `website` may be `null`; the frontend shows "Not available" in that case. `source` is informational (shows whether Cortex Search / Cortex AI produced the answer); the frontend ignores it.
+Errors: `400` for invalid input (missing message, over 1000 characters, unknown category, non-string location) and `503` when Snowflake is unavailable — always as `{ "error": "..." }`.
 
-Errors return JSON `{ "error": "..." }` with HTTP `400` (invalid input: missing message, message over 1000 characters, unknown category, non-string location) or `503` (Snowflake unavailable).
+</details>
 
-### Testing live mode
+<details>
+<summary><strong>🧪 Demo mode vs. live mode</strong></summary>
 
-1. Start Flask: `cd backend` then `python app.py`.
-2. Open <http://127.0.0.1:5050/?mode=live> and send a message for each category, plus a combined one ("I'm a veteran who needs a job and food assistance in Miami.").
-3. Or test the API directly (PowerShell):
+| Mode | Behavior |
+| --- | --- |
+| **Live** (default) | Calls `POST /api/chat` and shows real Snowflake data. Never falls back to demo data. |
+| **Demo** | No network calls. Fictional, clearly labeled example replies and cards — not real organizations. |
 
-   ```powershell
-   Invoke-RestMethod http://127.0.0.1:5050/api/chat -Method Post -ContentType application/json `
-     -Body '{"message":"I need food assistance in Miami","category":"food","location":"Miami-Dade County"}'
-   ```
+Switch per page load with `?mode=live` or `?mode=demo`, or change `DEFAULT_MODE` in `frontend/js/api.js`.
 
-   `source.retrieval` should be `cortex_search` and `source.generation` should be `llama3.3-70b`.
+</details>
 
-### Integration status
+---
 
-- [x] `POST /api/chat` implemented with the agreed request/response format
-- [x] Flask serves the frontend on port 5050 (same origin, no CORS needed)
-- [x] Snowflake `RESOURCES` table with verified Miami-Dade records
-- [x] Cortex Search retrieval, with SQL fallback
-- [x] Cortex AI grounded replies
-- [x] Tested end to end for veterans, food, employment, and combined requests
-- [ ] Expand the resource database with more verified organizations
+## 🌐 Public Deployment (Render)
 
-## Roadmap
+The repo includes a [`render.yaml`](render.yaml) Blueprint for a **Free** Render web service that serves the frontend and API together with Gunicorn.
 
-- [x] **Stage 1:** Project structure, minimal Flask server, starter frontend
-- [x] **Stage 2:** Chatbot UI, resource card components, and demo mode
-- [x] **Stage 3:** Frontend prepared for live API integration
-- [x] **Backend:** Flask `POST /api/chat`, Snowflake database with verified Miami-Dade resources
-- [x] **Stage 4:** Cortex Search service for retrieval (RAG)
-- [x] **Stage 5:** Cortex AI (`AI_COMPLETE`) grounded chat responses
-- [x] **Stage 6:** Frontend/backend integration on one origin (port 5050)
-- [ ] **Stage 7:** More verified resources, polish, and demo preparation
-- [ ] **Future:** Expand to more counties and assistance categories
+1. Sign in at [render.com](https://render.com) with GitHub and choose **New → Blueprint**, then select this repository.
+2. Enter the secret environment variables when prompted:
+   - `SNOWFLAKE_ACCOUNT` — account identifier
+   - `SNOWFLAKE_USER` — the read-only service user
+   - `SNOWFLAKE_PRIVATE_KEY` — the service user's PEM private key (paste the full key)
+   - `PUBLIC_SITE_URL` — the final URL, e.g. `https://communityconnect-ai.onrender.com`
+3. Deploy, then open `/api/health` and the homepage on the Render URL.
+
+The service user should have only: `USAGE` on the database, schema, warehouse, and Cortex Search service, `SELECT` on `RESOURCES`, and the `SNOWFLAKE.CORTEX_USER` database role.
+
+> Free Render services sleep when idle, so the first request after a pause can take up to a minute.
+
+---
+
+## 📁 Project Structure
+
+```text
+CommunityConnect-AI/
+├── frontend/
+│   ├── index.html                # Page, favicons, link-preview metadata
+│   ├── css/styles.css            # Styles (navy / teal theme)
+│   ├── js/
+│   │   ├── api.js                # API layer: live/demo mode, response validation
+│   │   └── main.js               # UI: chat, categories, resource cards
+│   └── assets/                   # Logo, favicons, Open Graph image
+├── backend/
+│   ├── app.py                    # Flask: serves frontend + POST /api/chat
+│   ├── requirements.txt
+│   ├── test_connection.py        # Quick Snowflake connection check
+│   └── services/
+│       └── snowflake_service.py  # Cortex Search retrieval + Cortex AI generation
+├── sql/setup_resources.sql       # Table, verified data, Cortex Search service
+├── scripts/generate_brand_assets.py  # Regenerates PNG icons and banner
+├── docs/images/                  # README banner and screenshots
+├── render.yaml                   # Render deployment Blueprint
+├── .env.example                  # Environment variable template
+└── README.md
+```
+
+---
+
+## 👥 Our Team
+
+| | Name | Role |
+| --- | --- | --- |
+| 🎨 | **Oliver Hernandez** ([@Oliver102274](https://github.com/Oliver102274)) | Frontend, chatbot interface, resource cards, frontend/backend integration, final MVP integration |
+| 🛠️ | **Daniel Espinosa** ([@Noct1z](https://github.com/Noct1z)) | Flask backend, Snowflake integration, Cortex AI |
+
+---
+
+## 🔭 Future Improvements
+
+- 📚 Expand the database with more verified Miami-Dade organizations
+- 🏠 Add categories such as housing, health care, and legal aid
+- 🗺️ Use location data for distance-aware results and maps
+- 🌎 Spanish and Haitian Creole support
+- 🔁 Scheduled re-verification of resource details against official sources
+- 🗺️ Expand beyond Miami-Dade County
+
+---
+
+## 🔗 Links
+
+- 📦 Repository: <https://github.com/Oliver102274/CommunityConnect-AI>
+- ❄️ Snowflake Cortex AI: <https://docs.snowflake.com/en/guides-overview-ai-features>
+- 🔎 Snowflake Cortex Search: <https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-search/cortex-search-overview>
+
+---
+
+<div align="center">
+<sub>Built for a Snowflake AI hackathon · Resource information is for guidance only — please contact each organization to confirm services and eligibility. In an emergency, call 911.</sub>
+</div>

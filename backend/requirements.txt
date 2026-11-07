@@ -1,3 +1,6 @@
 Flask
 python-dotenv
 snowflake-connector-python
+cryptography
+# Production WSGI server (Linux hosts such as Render; not used on Windows)
+gunicorn; platform_system != "Windows"

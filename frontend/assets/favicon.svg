@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="CommunityConnect AI">
+  <rect width="64" height="64" rx="14" fill="#0b2545"/>
+  <!-- location pin -->
+  <circle cx="30" cy="27" r="17" fill="#ffffff"/>
+  <path d="M14.1 33 L45.9 33 L30 55 Z" fill="#ffffff"/>
+  <!-- person (community) -->
+  <circle cx="30" cy="22" r="5.5" fill="#0f8b8d"/>
+  <path d="M20.5 37 A9.5 8 0 0 1 39.5 37 Z" fill="#0f8b8d"/>
+  <!-- AI chat bubble -->
+  <path d="M41 21 L41.5 29 L47 24 Z" fill="#7fe0e0" stroke="#0b2545" stroke-width="2.5" stroke-linejoin="round"/>
+  <circle cx="49" cy="15" r="10" fill="#7fe0e0" stroke="#0b2545" stroke-width="2.5"/>
+  <circle cx="45" cy="15" r="1.7" fill="#0b2545"/>
+  <circle cx="49" cy="15" r="1.7" fill="#0b2545"/>
+  <circle cx="53" cy="15" r="1.7" fill="#0b2545"/>
+</svg>
